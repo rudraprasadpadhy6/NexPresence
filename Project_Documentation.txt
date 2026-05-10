@@ -1,0 +1,96 @@
+# NexPresence AI Core - Project Design & Documentation (PDR)
+
+## 1. Project Overview
+**Project Name:** NexPresence AI Core  
+**Type:** Smart Attendance & Biometric Verification System  
+**Core Technologies:** Python, Flask, OpenCV, face_recognition, Pandas, Vanilla Web Technologies (HTML/CSS/JS)
+
+### 1.1 Purpose
+NexPresence is designed to automate classroom and organizational attendance tracking using facial recognition. It replaces manual roll calls with a fast, real-time camera feed that detects, matches, and logs attendance automatically. 
+
+---
+
+## 2. System Architecture
+
+The project is structured as a monolithic Web Application, divided into a distinct backend and frontend.
+
+### 2.1 Directory Structure
+```text
+NexPresence/
+├── backend/
+│   ├── WebApp.py            # Application core, routing, and AI subsystem
+│   ├── WashPhotos.py        # Pre-processing script for data integrity
+│   ├── static/
+│   │   └── known_faces/     # Storage for operator biometric signatures (photos)
+│   ├── uploads/             # Volatile storage for active uploads
+│   └── reports/             # Persistent storage for CSV attendance sheets and logs
+└── frontend/
+    └── indexPart.html       # Single-Page Application (SPA) UI
+```
+
+### 2.2 Core Modules
+1.  **AI Vision Core (`cv2` + `face_recognition`):** Processes frames from the local webcam, applies down-scaling for performance, and executes Histogram Equalization (CLAHE) to boost contrast in poor lighting. It then extracts 128-d face encodings and matches them against the databank.
+2.  **Web Server (`Flask`):** Serves the UI, handles REST API endpoints for data fetching, and streams the MJPEG video feed.
+3.  **Data Management (`Pandas`):** Parses uploaded CSV/Excel master sheets to build a structural representation of a class (names, roll numbers, sections).
+4.  **UI/UX (Frontend):** A deep-space minimalist dashboard containing Data Visualization (animated graphs), System configuration, and a live Scanner Engine.
+
+---
+
+## 3. Data Flow & State Management
+
+The application maintains several in-memory databanks (Python Dictionaries/Lists) for rapid querying:
+
+*   **`known_face_encodings` & `known_face_names`**: Stores the raw biometric arrays mapped to names.
+*   **`student_registry`**: Maps a student's Name to their Roll, Section, and Photo URL.
+*   **`attendance_db`**: A nested dictionary storing attendance. Format: `{ "Date": { "Section": { "Subject": Set(Names) } } }`
+*   **`master_sheet_data`**: Stores the raw structural data uploaded by the teacher.
+
+### 3.1 Biometric Sync Flow (`sync_memory_core`)
+When the server boots or a new student is enrolled, the system:
+1. Iterates through `backend/static/known_faces/`.
+2. Reads the image and extracts the face encoding.
+3. Parses the filename (Format: `Name_Roll_Section.jpg`) to build the `student_registry`.
+4. Keeps the encodings in RAM for fast real-time comparison.
+
+---
+
+## 4. API Endpoints Reference
+
+### 4.1 System & Configuration
+*   `GET /` : Serves the main SPA interface.
+*   `POST /set_config` : Sets the `active_date` and `active_subject` in the backend memory.
+
+### 4.2 Vision & Scanning
+*   `GET /video_feed` : Streams a `multipart/x-mixed-replace` JPEG byte stream from OpenCV. Performs active face detection on every alternate frame to save CPU cycles.
+*   `POST /upload_classroom` : Accepts a static group photo, detects all faces within the image, and marks them present for the active session.
+
+### 4.3 Data Ingestion
+*   `POST /register_student` : Accepts form data (Name, Roll, Section, Image File). Applies the CLAHE low-light enhancement, saves the image, and calls `sync_memory_core()` to immediately apply the new face to the AI model.
+*   `POST /upload_master_sheet` : Parses an uploaded Excel or CSV file. Extracts 'Name', 'Roll', and 'Section' columns and merges them into the current active session.
+
+### 4.4 Analytics & Reporting
+*   `GET /attendance_data` : Returns a simple JSON containing total enrolled, a list of present names, and a list of absent names for the active UI session.
+*   `GET /dashboard_analytics` : A heavy computational endpoint that aggregates historical data across `attendance_db` to generate attendance percentages, streaks, and individual history matrices.
+*   `GET /export_csv` : Dynamically generates a CSV file of the current day's attendance and returns it as a downloadable file attachment.
+*   `POST /submit_feedback` : Appends user diagnostics to `reports/diagnostics_log.txt`.
+
+---
+
+## 5. Subsystems & Utilities
+
+### 5.1 Low-Light Enhancer (`enhance_low_light`)
+Converts frames to the LAB color space, applies CLAHE (Contrast Limited Adaptive Histogram Equalization) to the Luminance channel, and converts back to BGR. This ensures facial signatures can be extracted even in dimly lit classrooms.
+
+### 5.2 Digital Wash Utility (`WashPhotos.py`)
+Because user-uploaded images can contain varying color profiles (e.g., CMYK, transparency layers, hidden smartphone EXIF data), this utility:
+1. Opens all images in `known_faces`.
+2. Forces a conversion to a flat, pure `RGB` matrix.
+3. Saves the file strictly as a high-quality `.jpg`.
+4. Deletes the original file if the extension was changed.
+
+---
+
+## 6. Future Expansion Capabilities
+*   **Persistent Database:** Transition `attendance_db` and `student_registry` from volatile RAM dictionaries to an SQLite or PostgreSQL database.
+*   **Multi-Threading:** Offload the `face_recognition` logic to a separate background thread or Celery worker to prevent frame-rate dropping on lower-end CPUs.
+*   **Security:** Implement JWT authorization to secure the API endpoints against unauthorized network requests.
